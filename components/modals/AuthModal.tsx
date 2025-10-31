@@ -1,0 +1,130 @@
+import React, { useState } from 'react';
+import Modal from './Modal';
+import { 
+    createUserWithEmailAndPassword, 
+    signInWithEmailAndPassword,
+    signInWithPopup,
+    GoogleAuthProvider,
+    updateProfile
+} from 'firebase/auth';
+import { auth, db } from '../../services/firebase';
+import { doc, setDoc, serverTimestamp, getDoc } from 'firebase/firestore';
+import { showMessage } from '../../utils/helpers';
+import { Loader2 } from 'lucide-react';
+
+interface AuthModalProps {
+    isOpen: boolean;
+    onClose: () => void;
+}
+
+const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
+    const [isSignUp, setIsSignUp] = useState(false);
+    const [name, setName] = useState('');
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setLoading(true);
+        setError('');
+        try {
+            if (isSignUp) {
+                if (password !== confirmPassword) {
+                    setError("Passwords do not match.");
+                    setLoading(false);
+                    return;
+                }
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                const user = userCredential.user;
+
+                await updateProfile(user, { displayName: name });
+
+                const role = user.email === 'resotainofficial@gmail.com' ? 'admin' : 'user';
+                await setDoc(doc(db, 'users', user.uid), {
+                    name,
+                    email: user.email,
+                    createdAt: serverTimestamp(),
+                    role: role
+                });
+                showMessage('Sign up successful! Welcome.');
+            } else {
+                await signInWithEmailAndPassword(auth, email, password);
+                showMessage('Welcome back!');
+            }
+            onClose();
+        } catch (err: any) {
+            setError(err.message);
+        } finally {
+            setLoading(false);
+        }
+    };
+    
+    const handleGoogleSignIn = async () => {
+        const provider = new GoogleAuthProvider();
+        try {
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user;
+            
+            const userDocRef = doc(db, 'users', user.uid);
+            const userDoc = await getDoc(userDocRef);
+            
+            if (!userDoc.exists()) {
+                const role = user.email === 'resotainofficial@gmail.com' ? 'admin' : 'user';
+                await setDoc(userDocRef, {
+                    name: user.displayName || user.email!.split('@')[0],
+                    email: user.email,
+                    createdAt: serverTimestamp(),
+                    role: role
+                });
+            }
+
+            showMessage('Successfully signed in with Google!');
+            onClose();
+        } catch (error: any) {
+            showMessage(`Google Sign-In Failed: ${error.message}`, true);
+        }
+    };
+
+    return (
+        <Modal isOpen={isOpen} onClose={onClose} title={isSignUp ? 'Sign Up' : 'Sign In'}>
+            <form onSubmit={handleSubmit} className="space-y-4">
+                {isSignUp && (
+                     <div>
+                        <label htmlFor="user-name" className="block text-sm font-medium mb-1 dark:text-gray-300">Name</label>
+                        <input type="text" id="user-name" value={name} onChange={e => setName(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
+                    </div>
+                )}
+                <div>
+                    <label htmlFor="user-email" className="block text-sm font-medium mb-1 dark:text-gray-300">Email</label>
+                    <input type="email" id="user-email" value={email} onChange={e => setEmail(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
+                </div>
+                <div>
+                    <label htmlFor="user-password" className="block text-sm font-medium mb-1 dark:text-gray-300">Password</label>
+                    <input type="password" id="user-password" value={password} onChange={e => setPassword(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
+                </div>
+                {isSignUp && (
+                    <div>
+                        <label htmlFor="confirm-password" className="block text-sm font-medium mb-1 dark:text-gray-300">Confirm Password</label>
+                        <input type="password" id="confirm-password" value={confirmPassword} onChange={e => setConfirmPassword(e.target.value)} className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-400 focus:border-indigo-400 dark:bg-gray-700 dark:border-gray-600 dark:text-white" required />
+                    </div>
+                )}
+                {error && <p className="text-red-500 text-sm">{error}</p>}
+                <button type="submit" disabled={loading} className="w-full py-3 bg-indigo-600 text-white text-lg font-semibold rounded-lg flex justify-center items-center shadow-md hover:bg-indigo-700 transition-all disabled:bg-indigo-400">
+                    {loading ? <Loader2 className="spinner w-6 h-6"/> : (isSignUp ? 'Sign Up' : 'Sign In')}
+                </button>
+                <button type="button" onClick={() => setIsSignUp(!isSignUp)} className="w-full text-center text-sm text-indigo-600 dark:text-indigo-400 hover:underline mt-2">
+                    {isSignUp ? 'Already have an account? Sign In' : 'Need an account? Sign Up'}
+                </button>
+            </form>
+            <div className="relative my-5"><div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-300 dark:border-gray-600"></div></div><div className="relative flex justify-center text-sm"><span className="px-2 bg-white dark:bg-gray-800 text-gray-500 dark:text-gray-400">Or</span></div></div>
+            <button onClick={handleGoogleSignIn} className="w-full flex justify-center items-center py-3 px-4 border border-gray-300 rounded-lg shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600">
+                <svg className="w-5 h-5 mr-3" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.611,20.083H42V20H24v8h11.303c-1.649,4.657-6.08,8-11.303,8c-6.627,0-12-5.373-12-12s5.373-12,12-12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C12.955,4,4,12.955,4,24s8.955,20,20,20s20-8.955,20-20C44,22.659,43.862,21.35,43.611,20.083z"></path><path fill="#FF3D00" d="M6.306,14.691l6.571,4.819C14.655,15.108,18.961,12,24,12c3.059,0,5.842,1.154,7.961,3.039l5.657-5.657C34.046,6.053,29.268,4,24,4C16.318,4,9.656,8.337,6.306,14.691z"></path><path fill="#4CAF50" d="M24,44c5.166,0,9.86-1.977,13.409-5.192l-6.19-5.238C29.211,35.091,26.715,36,24,36c-5.202,0-9.619-3.317-11.283-7.946l-6.522,5.025C9.505,39.556,16.227,44,24,44z"></path><path fill="#1976D2" d="M43.611,20.083H42V20H24v8h11.303c-0.792,2.237-2.231,4.166-4.087,5.574l6.19,5.238C42.022,35.244,44,30.036,44,24C44,22.659,43.862,21.35,43.611,20.083z"></path></svg>Sign in with Google
+            </button>
+        </Modal>
+    );
+};
+
+export default AuthModal;
